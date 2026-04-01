@@ -44,13 +44,13 @@ Includes offline sync support with conflict detection - if a client sends a stal
 1. In Jellyfin, go to **Dashboard → Plugins → Repositories**
 2. Click the **+** button and add:
    - **Name:** `Book Reader`
-   - **URL:** `https://raw.githubusercontent.com/<your-username>/jellyfin-plugin-bookreader/main/manifest.json`
+   - **URL:** `https://raw.githubusercontent.com/codevardhan/jellyfin-plugin-bookreader/main/manifest.json`
 3. Go to **Catalog**, find **Book Reader** under the General category, and click **Install**
 4. **Restart Jellyfin**
 
 ### Manual Installation
 
-1. Download the latest release `.zip` from the [Releases](https://github.com/<your-username>/jellyfin-plugin-bookreader/releases) page
+1. Download the latest release `.zip` from the [Releases](https://github.com/codevardhan/jellyfin-plugin-bookreader/releases) page
 2. Extract into your Jellyfin plugins directory:
    - **Linux:** `/var/lib/jellyfin/plugins/BookReader/`
    - **Docker:** Mount or copy into the container's plugin path
@@ -60,7 +60,7 @@ Includes offline sync support with conflict detection - if a client sends a stal
 ### Build from Source
 
 ```bash
-git clone https://github.com/<your-username>/jellyfin-plugin-bookreader.git
+git clone https://github.com/codevardhan/jellyfin-plugin-bookreader.git
 cd jellyfin-plugin-bookreader
 make package
 # Output: jellyfin-book-reader.zip
