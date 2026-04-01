@@ -1,0 +1,106 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore JellyfinBookReader.csproj
+
+      - name: Build
+        run: dotnet build JellyfinBookReader.csproj --configuration Release --no-restore
+
+      - name: Publish
+        run: dotnet publish JellyfinBookReader.csproj --configuration Release --output ./publish --no-build
+
+      - name: Package plugin
+        run: |
+          mkdir -p ./artifact
+          # Only include plugin DLL + SQLite deps (not Jellyfin framework DLLs)
+          cp ./publish/JellyfinBookReader.dll ./artifact/
+          cp ./publish/Microsoft.Data.Sqlite.dll ./artifact/
+          cp ./publish/SQLitePCLRaw.batteries_v2.dll ./artifact/
+          cp ./publish/SQLitePCLRaw.core.dll ./artifact/
+          cp ./publish/SQLitePCLRaw.provider.e_sqlite3.dll ./artifact/
+
+          # Generate meta.json
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="0.0.0.1"
+          fi
+
+          cat > ./artifact/meta.json << METAEOF
+          {
+            "guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "name": "Book Reader",
+            "description": "REST API for book reading apps",
+            "overview": "Browse library, download books, sync reading progress",
+            "owner": "codevardhan",
+            "category": "General",
+            "versions": [
+              {
+                "version": "${VERSION}",
+                "changelog": "",
+                "targetAbi": "10.11.0.0",
+                "sourceUrl": "",
+                "checksum": "",
+                "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              }
+            ]
+          }
+          METAEOF
+
+          cd ./artifact && zip -r ../jellyfin-book-reader.zip . && cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellyfin-book-reader
+          path: jellyfin-book-reader.zip
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jellyfin-book-reader
+
+      - name: Compute checksum
+        id: checksum
+        run: echo "md5=$(md5sum jellyfin-book-reader.zip | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: jellyfin-book-reader.zip
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            1. In Jellyfin, go to **Dashboard → Plugins → Repositories**
+            2. Add repository: `https://raw.githubusercontent.com/${{ github.repository }}/main/manifest.json`
+            3. Go to **Catalog**, find "Book Reader", click Install
+            4. Restart Jellyfin
+
+            **Manual install:** Download `jellyfin-book-reader.zip`, extract to `<jellyfin-data>/plugins/BookReader/`, restart Jellyfin.
+
+            **Checksum (MD5):** `${{ steps.checksum.outputs.md5 }}`

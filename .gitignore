@@ -1,0 +1,28 @@
+## .NET / C#
+bin/
+obj/
+publish/
+dist/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Build outputs
+jellyfin-book-reader.zip
+*.nupkg
+
+## IDE
+.vs/
+.vscode/
+*.swp
+*~
+.idea/
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Test results
+TestResults/
+*.trx
