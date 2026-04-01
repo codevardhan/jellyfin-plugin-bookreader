@@ -15,15 +15,11 @@ VERSION := $(shell grep -m1 '^version:' build.yaml 2>/dev/null | awk '{print $$2
 .PHONY: build publish deploy clean test test-verbose test-coverage \
         package package-verify checksum smoke lint restore help
 
-#  Default 
-
 help: ## Show this help
 	@echo "JellyfinBookReader Plugin — Make Targets"
 	@echo "─────────────────────────────────────────"
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
-
-#  Build 
 
 restore: ## Restore NuGet packages
 	dotnet restore $(SOLUTION)
@@ -33,8 +29,6 @@ build: restore ## Build plugin (Release)
 
 publish: ## Publish plugin DLLs
 	dotnet publish $(PLUGIN_NAME).csproj --configuration Release --output $(PUBLISH_DIR)
-
-#  Test
 
 test: restore ## Run all tests
 	dotnet test $(TEST_PROJECT) --configuration Release --no-restore --verbosity normal
@@ -50,7 +44,6 @@ test-coverage: restore ## Run tests with code coverage report
 		--results-directory ./TestResults
 	@echo ""
 	@echo "Coverage report written to ./TestResults/"
-	@echo "Open the coverage.cobertura.xml with a viewer like reportgenerator."
 
 test-filter: restore ## Run specific tests (usage: make test-filter FILTER="ClassName")
 ifndef FILTER
@@ -59,19 +52,12 @@ endif
 	dotnet test $(TEST_PROJECT) --configuration Release --no-restore \
 		--filter "FullyQualifiedName~$(FILTER)" --verbosity normal
 
-#  Package 
-
 package: test publish ## Run tests, then build distributable zip
 	@echo "Packaging v$(VERSION)..."
 	rm -rf $(DIST_DIR)
 	mkdir -p $(DIST_DIR)
-	@for dll in $(ARTIFACTS); do \
-		if [ ! -f "$(PUBLISH_DIR)/$$dll" ]; then \
-			echo "ERROR: Missing artifact: $$dll"; exit 1; \
-		fi; \
-		cp "$(PUBLISH_DIR)/$$dll" $(DIST_DIR)/; \
+	cp $(PUBLISH_DIR)/$(PLUGIN_NAME).dll $(DIST_DIR)/
 	cp meta.json $(DIST_DIR)/ 2>/dev/null || true
-	done
 	cd $(DIST_DIR) && zip -r ../$(PACKAGE_NAME) . && cd ..
 	@echo ""
 	@$(MAKE) --no-print-directory checksum
@@ -81,13 +67,14 @@ package: test publish ## Run tests, then build distributable zip
 
 package-verify: ## Verify the zip contains all required artifacts
 	@echo "Verifying package contents..."
-	@for dll in $(ARTIFACTS); do \
-		if ! unzip -l $(PACKAGE_NAME) | grep -q "$$dll"; then \
-			echo "  ✗ MISSING: $$dll"; exit 1; \
-		else \
-			echo "  ✓ $$dll"; \
-		fi; \
-	done
+	@if ! unzip -l $(PACKAGE_NAME) | grep -q "$(PLUGIN_NAME).dll"; then \
+		echo "  ✗ MISSING: $(PLUGIN_NAME).dll"; exit 1; \
+	else \
+		echo "  ✓ $(PLUGIN_NAME).dll"; \
+	fi
+	@if unzip -l $(PACKAGE_NAME) | grep -q "meta.json"; then \
+		echo "  ✓ meta.json"; \
+	fi
 
 checksum: ## Print MD5 checksum of the package (for manifest.json)
 	@if [ -f $(PACKAGE_NAME) ]; then \
@@ -102,21 +89,16 @@ checksum: ## Print MD5 checksum of the package (for manifest.json)
 		echo "No package found. Run: make package"; exit 1; \
 	fi
 
-#  Deploy (local dev) 
-
 deploy: package ## Build, test, package, and deploy to local Jellyfin
 	@echo "Deploying to $(PLUGIN_DIR)..."
 	sudo mkdir -p $(PLUGIN_DIR)
-	@for dll in $(ARTIFACTS); do \
-		sudo cp "$(DIST_DIR)/$$dll" $(PLUGIN_DIR)/; \
-	done
+	sudo cp $(DIST_DIR)/$(PLUGIN_NAME).dll $(PLUGIN_DIR)/
+	sudo cp $(DIST_DIR)/meta.json $(PLUGIN_DIR)/ 2>/dev/null || true
 	sudo chown -R jellyfin:jellyfin $(PLUGIN_DIR)/
 	sudo systemctl restart jellyfin
 	@echo "Deployed v$(VERSION). Waiting for Jellyfin to start..."
 	@sleep 10
 	@echo "✓ Done. Run: make smoke"
-
-#  Smoke Test 
 
 smoke: ## Hit live API endpoints to verify the plugin is loaded
 	@if [ -z "$$JF_TOKEN" ]; then \
@@ -142,16 +124,12 @@ smoke: ## Hit live API endpoints to verify the plugin is loaded
 	echo ""; \
 	echo "✓ Smoke tests complete"
 
-#  Lint / Quality 
-
 lint: ## Run dotnet format to check code style
 	dotnet format $(SOLUTION) --verify-no-changes --verbosity normal || \
 		(echo ""; echo "Run 'dotnet format $(SOLUTION)' to fix."; exit 1)
 
 format: ## Auto-fix code style issues
 	dotnet format $(SOLUTION)
-
-#  Clean 
 
 clean: ## Remove all build artifacts
 	rm -rf bin obj $(PUBLISH_DIR) $(DIST_DIR) $(PACKAGE_NAME) TestResults
