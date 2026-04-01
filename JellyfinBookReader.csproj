@@ -10,12 +10,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Jellyfin APIs — never bundle -->
     <PackageReference Include="Jellyfin.Controller" Version="10.11.*" Private="false" />
     <PackageReference Include="Jellyfin.Model" Version="10.11.*" Private="false" />
-
-    <!-- SQLite — compile against it, but don't bundle (Jellyfin ships it) -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.*" Private="false" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.*" Private="false" />
   </ItemGroup>
 
 </Project>
