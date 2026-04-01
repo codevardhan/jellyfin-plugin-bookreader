@@ -6,13 +6,8 @@ PACKAGE_NAME  := jellyfin-book-reader.zip
 TEST_PROJECT  := $(PLUGIN_NAME).Tests/$(PLUGIN_NAME).Tests.csproj
 SOLUTION      := $(PLUGIN_NAME).sln
 
-# DLLs that must ship with the plugin (SQLite isn't bundled with Jellyfin)
-ARTIFACTS := \
-	$(PLUGIN_NAME).dll
-	Microsoft.Data.Sqlite.dll \
-	SQLitePCLRaw.batteries_v2.dll \
-	SQLitePCLRaw.core.dll \
-	SQLitePCLRaw.provider.e_sqlite3.dll
+# Only ship the plugin DLL — Jellyfin provides SQLite at runtime
+ARTIFACTS := $(PLUGIN_NAME).dll
 
 # Extract version from build.yaml if present, otherwise default
 VERSION := $(shell grep -m1 '^version:' build.yaml 2>/dev/null | awk '{print $$2}' | tr -d '"' || echo "1.0.0.0")
@@ -75,6 +70,7 @@ package: test publish ## Run tests, then build distributable zip
 			echo "ERROR: Missing artifact: $$dll"; exit 1; \
 		fi; \
 		cp "$(PUBLISH_DIR)/$$dll" $(DIST_DIR)/; \
+	cp meta.json $(DIST_DIR)/ 2>/dev/null || true
 	done
 	cd $(DIST_DIR) && zip -r ../$(PACKAGE_NAME) . && cd ..
 	@echo ""
