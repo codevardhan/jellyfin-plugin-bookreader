@@ -8,7 +8,7 @@ SOLUTION      := $(PLUGIN_NAME).sln
 
 # DLLs that must ship with the plugin (SQLite isn't bundled with Jellyfin)
 ARTIFACTS := \
-	$(PLUGIN_NAME).dll \
+	$(PLUGIN_NAME).dll
 	Microsoft.Data.Sqlite.dll \
 	SQLitePCLRaw.batteries_v2.dll \
 	SQLitePCLRaw.core.dll \
