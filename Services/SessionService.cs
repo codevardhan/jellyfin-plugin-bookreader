@@ -43,6 +43,14 @@ public class SessionService
     public bool EndSession(EndSessionRequest request) =>
         _repo.EndSession(request.SessionId, request.PagesRead, request.PercentageAdvanced);
 
+    /// <summary>
+    /// Returns the session row for a given session ID regardless of open/closed state.
+    /// Used by <c>BookReaderController.EndSession</c> to retrieve the <c>BookId</c>
+    /// needed to evict the book's page cache after the session has been closed.
+    /// </summary>
+    public SessionRow? GetClosedSession(string sessionId) =>
+        _repo.GetSessionById(sessionId);
+
     public int CloseStaleSessionsGlobal(int timeoutMinutes) =>
         _repo.CloseStaleSessionsGlobal(timeoutMinutes);
 
@@ -53,37 +61,30 @@ public class SessionService
         var now = DateTime.UtcNow;
         var thirtyDaysAgo = now.AddDays(-30);
 
-        // Total stats
         long totalTime = sessions.Sum(s => (long)s.DurationSeconds);
         int totalSessions = sessions.Count;
         int totalFinished = progressMap.Values.Count(p => p.IsFinished);
 
-        // Last 30 days
         var recentSessions = sessions.Where(s => s.StartedAt >= thirtyDaysAgo).ToList();
         long recentTime = recentSessions.Sum(s => (long)s.DurationSeconds);
         int recentCount = recentSessions.Count;
-        // Books finished in last 30 days: progress with IsFinished and LastReadAt in range
         int recentFinished = progressMap.Values
             .Count(p => p.IsFinished && p.LastReadAt >= thirtyDaysAgo);
 
-        // Daily average: total time / number of distinct days with sessions
         var distinctDays = sessions
             .Select(s => s.StartedAt.Date)
             .Distinct()
             .Count();
         long dailyAvg = distinctDays > 0 ? totalTime / distinctDays : 0;
 
-        // Streaks (based on calendar days UTC)
         var (currentStreak, longestStreak) = ComputeStreaks(sessions, now);
 
-        // Per-book stats
         var perBook = sessions
             .GroupBy(s => s.BookId)
             .Select(g =>
             {
                 var bookId = g.Key;
                 var title = _libraryManager.GetItemById(bookId)?.Name ?? "Unknown";
-
                 return new PerBookStats
                 {
                     BookId = bookId.ToString(),
@@ -114,10 +115,6 @@ public class SessionService
         };
     }
 
-    /// <summary>
-    /// Compute current and longest reading streaks.
-    /// A day counts if the user had at least one session on that calendar day (UTC).
-    /// </summary>
     private static (int Current, int Longest) ComputeStreaks(List<SessionRow> sessions, DateTime now)
     {
         if (sessions.Count == 0) return (0, 0);
@@ -130,22 +127,15 @@ public class SessionService
 
         if (readingDays.Count == 0) return (0, 0);
 
-        // Current streak: count consecutive days going back from today/yesterday
         int currentStreak = 0;
         var checkDate = now.Date;
 
-        // If user didn't read today, check if they read yesterday (streak not broken yet)
         if (readingDays[0] < checkDate)
         {
             if (readingDays[0] < checkDate.AddDays(-1))
-            {
-                // Last session was 2+ days ago — streak is broken
                 currentStreak = 0;
-            }
             else
-            {
                 checkDate = checkDate.AddDays(-1);
-            }
         }
 
         foreach (var day in readingDays)
@@ -161,7 +151,6 @@ public class SessionService
             }
         }
 
-        // Longest streak: scan all days chronologically
         var ascending = readingDays.OrderBy(d => d).ToList();
         int longestStreak = 1;
         int streak = 1;
@@ -180,7 +169,6 @@ public class SessionService
         }
 
         longestStreak = Math.Max(longestStreak, currentStreak);
-
         return (currentStreak, longestStreak);
     }
 }
