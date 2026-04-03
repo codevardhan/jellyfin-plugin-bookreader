@@ -32,7 +32,7 @@ public class EpubStreamingServiceTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    // ── CanStream ─────────────────────────────────────────────────────────────
+    //  CanStream 
 
     [Theory]
     [InlineData("book.epub", true)]
@@ -48,7 +48,7 @@ public class EpubStreamingServiceTests : IDisposable
         Assert.Equal(expected, _service.CanStream(path));
     }
 
-    // ── GetPageCountAsync ─────────────────────────────────────────────────────
+    //  GetPageCountAsync 
 
     [Fact]
     public async Task GetPageCountAsync_ReturnsTwoForTwoChapterEpub()
@@ -85,7 +85,7 @@ public class EpubStreamingServiceTests : IDisposable
             () => _service.GetPageCountAsync(Path.Combine(_tempDir, "missing.epub")));
     }
 
-    // ── GetPageAsync ──────────────────────────────────────────────────────────
+    //  GetPageAsync 
 
     [Fact]
     public async Task GetPageAsync_ReturnsChapterContentForPage0()
@@ -169,7 +169,7 @@ public class EpubStreamingServiceTests : IDisposable
         stream.Dispose();
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    //  Helpers 
 
     /// Creates a minimal valid EPUB ZIP with the given chapters in spine order.
     private string CreateEpub(params (string Name, string Content)[] chapters)

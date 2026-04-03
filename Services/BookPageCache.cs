@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.IO;
 using JellyfinBookReader.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace JellyfinBookReader.Services;
 
@@ -13,12 +14,22 @@ namespace JellyfinBookReader.Services;
 /// create — <see cref="InMemoryPageCacheStore"/> for small books,
 /// <see cref="DiskPageCacheStore"/> for large ones.
 ///
+/// If the disk store cannot be created (e.g. stale /tmp directory owned by another
+/// user after a service restart), it logs a warning and falls back to in-memory so
+/// page requests never result in a 500 error.
+///
 /// The store selection is permanent for the lifetime of the session: a book that was
 /// small enough for memory when first opened will not migrate to disk mid-session.
 /// </summary>
 public class BookPageCache
 {
     private readonly ConcurrentDictionary<Guid, IPageCacheStore> _stores = new();
+    private readonly ILogger<BookPageCache> _logger;
+
+    public BookPageCache(ILogger<BookPageCache> logger)
+    {
+        _logger = logger;
+    }
 
     private long ThresholdBytes
     {
@@ -39,9 +50,25 @@ public class BookPageCache
     private IPageCacheStore CreateStore(Guid bookId, string filePath)
     {
         var fileSize = new FileInfo(filePath).Length;
-        return fileSize >= ThresholdBytes
-            ? new DiskPageCacheStore(bookId)
-            : new InMemoryPageCacheStore();
+        if (fileSize < ThresholdBytes)
+            return new InMemoryPageCacheStore();
+
+        // Large book — try disk cache. Fall back to in-memory if the temp
+        // directory is inaccessible (e.g. owned by another user from a
+        // previous run with different permissions).
+        try
+        {
+            return new DiskPageCacheStore(bookId);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            _logger.LogWarning(ex,
+                "Cannot create disk cache store for book {BookId} " +
+                "— falling back to in-memory. " +
+                "Run: sudo rm -rf /tmp/jellyfin-bookreader/ to clear stale directories.",
+                bookId);
+            return new InMemoryPageCacheStore();
+        }
     }
 
     //  Convenience pass-throughs used by controller + background service 

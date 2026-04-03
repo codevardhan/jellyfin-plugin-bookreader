@@ -33,7 +33,7 @@ public class CbzStreamingServiceTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    // ── CanStream ─────────────────────────────────────────────────────────────
+    //  CanStream 
 
     [Theory]
     [InlineData("comic.cbz", true)]
@@ -49,7 +49,7 @@ public class CbzStreamingServiceTests : IDisposable
         Assert.Equal(expected, _service.CanStream(path));
     }
 
-    // ── GetPageCountAsync ─────────────────────────────────────────────────────
+    //  GetPageCountAsync 
 
     [Fact]
     public async Task GetPageCountAsync_ReturnsNumberOfImageFiles()
@@ -85,7 +85,7 @@ public class CbzStreamingServiceTests : IDisposable
         Assert.Equal(1, await _service.GetPageCountAsync(path));
     }
 
-    // ── GetPageAsync ──────────────────────────────────────────────────────────
+    //  GetPageAsync 
 
     [Fact]
     public async Task GetPageAsync_ReturnsCorrectBytesForPage()
@@ -197,7 +197,7 @@ public class CbzStreamingServiceTests : IDisposable
         stream.Dispose();
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    //  Helpers 
 
     private string CreateCbz(params (string Name, byte[] Data)[] entries)
     {

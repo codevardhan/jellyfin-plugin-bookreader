@@ -47,7 +47,7 @@ public class WarmUpBackgroundServiceTests : IDisposable
             new CbzStreamingService(NullLogger<CbzStreamingService>.Instance),
         });
 
-        var cache = new BookPageCache();
+        var cache = new BookPageCache(NullLogger<BookPageCache>.Instance);
         var service = new WarmUpBackgroundService(
             channel, factory, cache, NullLogger<WarmUpBackgroundService>.Instance);
 
@@ -234,12 +234,12 @@ public class WarmUpBackgroundServiceTests : IDisposable
     {
         var (svc, ch, cache) = BuildService();
         var goodBook = Guid.NewGuid();
-        var badBook  = Guid.NewGuid();
+        var badBook = Guid.NewGuid();
         var goodPath = CreateCbz(pageCount: 2);
-        var badPath  = Path.Combine(_tempDir, "corrupt.cbz");
+        var badPath = Path.Combine(_tempDir, "corrupt.cbz");
         File.WriteAllBytes(badPath, new byte[] { 0x00 }); // invalid ZIP
 
-        ch.Writer.TryWrite(new WarmUpRequest(badBook,  badPath,  0, 2));
+        ch.Writer.TryWrite(new WarmUpRequest(badBook, badPath, 0, 2));
         ch.Writer.TryWrite(new WarmUpRequest(goodBook, goodPath, 0, 2));
         await DrainAsync(svc, ch);
 

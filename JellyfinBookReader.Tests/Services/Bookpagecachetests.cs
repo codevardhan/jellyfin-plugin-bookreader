@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using JellyfinBookReader.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace JellyfinBookReader.Tests.Services;
@@ -19,7 +20,7 @@ public class BookPageCacheTests : IDisposable
 
     public BookPageCacheTests()
     {
-        _cache = new BookPageCache();
+        _cache = new BookPageCache(NullLogger<BookPageCache>.Instance);
 
         // A tiny file well below the 50 MB threshold → InMemoryPageCacheStore.
         _tempFile = Path.GetTempFileName();
@@ -58,6 +59,48 @@ public class BookPageCacheTests : IDisposable
     {
         var store = _cache.GetOrCreateStore(Guid.NewGuid(), _tempFile);
         Assert.IsType<InMemoryPageCacheStore>(store);
+    }
+
+    //  Permission-error fallback 
+
+    [Fact]
+    public void GetOrCreateStore_FallsBackToInMemory_WhenDiskDirectoryInaccessible()
+    {
+        var bookId = Guid.NewGuid();
+        // The DiskPageCacheStore constructor calls Directory.CreateDirectory on:
+        //   /tmp/jellyfin-bookreader/{bookId:N}
+        // Placing a FILE at that path makes Directory.CreateDirectory throw
+        // IOException ("Not a directory") on Linux and Windows alike, which
+        // BookPageCache catches and converts to an in-memory fallback.
+        var cacheDir = Path.Combine(
+            Path.GetTempPath(), "jellyfin-bookreader");
+        Directory.CreateDirectory(cacheDir);
+        var blockerFile = Path.Combine(cacheDir, bookId.ToString("N"));
+        File.WriteAllBytes(blockerFile, Array.Empty<byte>());
+
+        var largeFake = Path.GetTempFileName();
+        try
+        {
+            // Give the fake file a size above the 50 MB threshold so
+            // BookPageCache would normally attempt to create a DiskPageCacheStore.
+            using (var fs = new FileStream(largeFake, FileMode.Create, FileAccess.Write))
+                fs.SetLength(51L * 1024 * 1024);
+
+            // Must not throw — IOException is caught; falls back to in-memory.
+            var ex = Record.Exception(() => _cache.GetOrCreateStore(bookId, largeFake));
+            Assert.Null(ex);
+
+            // The fallback store must be fully functional.
+            _cache.Set(bookId, largeFake, 0, new byte[] { 0xAB }, "image/jpeg");
+            var hit = _cache.TryGet(bookId, 0, out var data, out _);
+            Assert.True(hit);
+            Assert.Equal(new byte[] { 0xAB }, data);
+        }
+        finally
+        {
+            try { File.Delete(largeFake); } catch { }
+            try { File.Delete(blockerFile); } catch { }
+        }
     }
 
     //  TryGet 
@@ -152,7 +195,6 @@ public class BookPageCacheTests : IDisposable
 
         _cache.Evict(bookId);
 
-        // After evict the store is gone — TryGet should return false.
         var hit = _cache.TryGet(bookId, 0, out _, out _);
         Assert.False(hit);
     }
