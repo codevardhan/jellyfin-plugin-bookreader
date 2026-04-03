@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
@@ -27,7 +29,6 @@ public class SessionRepository
 
         try
         {
-            // Close any existing open session for this user+book
             CloseOpenSessions(conn, tx, userId, bookId);
 
             var sessionId = Guid.NewGuid().ToString();
@@ -61,7 +62,7 @@ public class SessionRepository
 
     /// <summary>
     /// Update the heartbeat timestamp for an open session.
-    /// Returns false if session not found or already closed.
+    /// Returns false if the session is not found or already closed.
     /// </summary>
     public bool Heartbeat(string sessionId)
     {
@@ -81,7 +82,7 @@ public class SessionRepository
 
     /// <summary>
     /// End a session. Sets EndedAt, computes duration, records pages/percentage.
-    /// Returns false if session not found or already closed.
+    /// Returns false if the session is not found or already closed.
     /// </summary>
     public bool EndSession(string sessionId, int? pagesRead, double? percentageAdvanced)
     {
@@ -90,7 +91,6 @@ public class SessionRepository
 
         try
         {
-            // Get the session's StartedAt
             using var getCmd = conn.CreateCommand();
             getCmd.Transaction = tx;
             getCmd.CommandText = "SELECT StartedAt FROM ReadingSessions WHERE Id = @id AND IsOpen = 1";
@@ -103,7 +103,7 @@ public class SessionRepository
                 return false;
             }
 
-            var startedAt = DateTime.Parse(startedAtStr, null, System.Globalization.DateTimeStyles.RoundtripKind);
+            var startedAt = DateTime.Parse(startedAtStr, null, DateTimeStyles.RoundtripKind);
             var now = DateTime.UtcNow;
             var duration = (int)(now - startedAt).TotalSeconds;
 
@@ -137,6 +137,29 @@ public class SessionRepository
     }
 
     /// <summary>
+    /// Fetch a single session row by ID regardless of open/closed state.
+    /// Used by the controller after EndSession to retrieve the BookId for cache eviction.
+    /// Returns null if the session ID does not exist.
+    /// </summary>
+    public SessionRow? GetSessionById(string sessionId)
+    {
+        using var conn = _db.GetConnection();
+        using var cmd = conn.CreateCommand();
+
+        cmd.CommandText = @"
+            SELECT Id, BookId, StartedAt, EndedAt, DurationSeconds, PagesRead, PercentageAdvanced
+            FROM ReadingSessions
+            WHERE Id = @id";
+
+        cmd.Parameters.AddWithValue("@id", sessionId);
+
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read()) return null;
+
+        return ReadRow(reader);
+    }
+
+    /// <summary>
     /// Close all stale sessions (open sessions with no heartbeat within the timeout).
     /// Returns the number of sessions closed.
     /// </summary>
@@ -160,15 +183,13 @@ public class SessionRepository
 
         var closed = cmd.ExecuteNonQuery();
         if (closed > 0)
-        {
             _logger.LogInformation("Auto-closed {Count} stale reading sessions.", closed);
-        }
 
         return closed;
     }
 
     /// <summary>
-    /// Get all closed sessions for a user, ordered by StartedAt desc.
+    /// Get all closed sessions for a user, ordered by StartedAt descending.
     /// </summary>
     public List<SessionRow> GetSessionsForUser(Guid userId)
     {
@@ -178,8 +199,7 @@ public class SessionRepository
         using var cmd = conn.CreateCommand();
 
         cmd.CommandText = @"
-            SELECT Id, BookId, StartedAt, EndedAt, DurationSeconds,
-                   PagesRead, PercentageAdvanced
+            SELECT Id, BookId, StartedAt, EndedAt, DurationSeconds, PagesRead, PercentageAdvanced
             FROM ReadingSessions
             WHERE UserId = @userId AND IsOpen = 0 AND DurationSeconds > 0
             ORDER BY StartedAt DESC";
@@ -188,30 +208,31 @@ public class SessionRepository
 
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
-        {
-            sessions.Add(new SessionRow
-            {
-                Id = reader.GetString(0),
-                BookId = Guid.Parse(reader.GetString(1)),
-                StartedAt = DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.RoundtripKind),
-                EndedAt = reader.IsDBNull(3) ? null : DateTime.Parse(reader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind),
-                DurationSeconds = reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
-                PagesRead = reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                PercentageAdvanced = reader.IsDBNull(6) ? null : reader.GetDouble(6),
-            });
-        }
+            sessions.Add(ReadRow(reader));
 
         return sessions;
     }
 
-    /// <summary>
-    /// Close any open sessions for a specific user+book.
-    /// </summary>
-    private void CloseOpenSessions(SqliteConnection conn, SqliteTransaction tx, Guid userId, Guid bookId)
+    //  Private helpers 
+
+    private static SessionRow ReadRow(SqliteDataReader reader) => new()
+    {
+        Id = reader.GetString(0),
+        BookId = Guid.Parse(reader.GetString(1)),
+        StartedAt = DateTime.Parse(
+            reader.GetString(2), null, DateTimeStyles.RoundtripKind),
+        EndedAt = reader.IsDBNull(3) ? null : DateTime.Parse(
+            reader.GetString(3), null, DateTimeStyles.RoundtripKind),
+        DurationSeconds = reader.IsDBNull(4) ? 0 : reader.GetInt32(4),
+        PagesRead = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+        PercentageAdvanced = reader.IsDBNull(6) ? null : reader.GetDouble(6),
+    };
+
+    private static void CloseOpenSessions(
+        SqliteConnection conn, SqliteTransaction tx, Guid userId, Guid bookId)
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-
         cmd.CommandText = @"
             UPDATE ReadingSessions
             SET EndedAt         = LastHeartbeatAt,
@@ -223,7 +244,6 @@ public class SessionRepository
 
         cmd.Parameters.AddWithValue("@userId", userId.ToString());
         cmd.Parameters.AddWithValue("@bookId", bookId.ToString());
-
         cmd.ExecuteNonQuery();
     }
 }
