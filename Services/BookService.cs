@@ -70,7 +70,7 @@ public class BookService
         var allBooks = GetAllBooks();
         IEnumerable<BaseItem> filtered = allBooks;
 
-        // --- Filters ---
+        //  Filters 
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
@@ -141,7 +141,7 @@ public class BookService
         var materialized = filtered.ToList();
         var totalCount = materialized.Count;
 
-        // --- Sort ---
+        //  Sort 
 
         var desc = query.SortOrder.Equals("desc", StringComparison.OrdinalIgnoreCase);
 
@@ -158,14 +158,14 @@ public class BookService
                 : materialized.OrderBy(b => progressLookup(b.Id)?.LastReadAt ?? DateTime.MinValue),
             "progress" => desc
                 ? materialized.OrderByDescending(b => progressLookup(b.Id)?.Percentage ?? -1)
-                : materialized.OrderBy(b => progressLookup(b.Id) == null ? double.MaxValue 
+                : materialized.OrderBy(b => progressLookup(b.Id) == null ? double.MaxValue
                              : progressLookup(b.Id)!.Percentage),
             _ => desc // default: title
                 ? materialized.OrderByDescending(b => b.SortName ?? b.Name ?? "")
                 : materialized.OrderBy(b => b.SortName ?? b.Name ?? ""),
         }).ToList();
 
-        // --- Paginate ---
+        //  Paginate 
 
         var limit = Math.Clamp(query.Limit ?? defaultPageSize, 1, maxPageSize);
         var offset = Math.Max(query.Offset, 0);
@@ -190,16 +190,49 @@ public class BookService
     /// </summary>
     public BaseItem[] GetAllBooks()
     {
-        var query = new InternalItemsQuery
+        // Jellyfin 10.11 indexes books under different BaseItemKind values depending on
+        // how the file was scanned. Try each type that could contain book files.
+        var typesToTry = new[]
         {
-            MediaTypes = new[] { MediaType.Book },
-            IsVirtualItem = false,
-            Recursive = true,
+            new[] { BaseItemKind.Book },
+            new[] { BaseItemKind.Video },
         };
 
-        return _libraryManager.GetItemsResult(query).Items
-            .Where(i => !string.IsNullOrEmpty(i.Path) && File.Exists(i.Path))
-            .ToArray();
+        foreach (var types in typesToTry)
+        {
+            try
+            {
+                var query = new InternalItemsQuery
+                {
+                    IncludeItemTypes = types,
+                    IsVirtualItem = false,
+                    Recursive = true,
+                };
+
+                var results = _libraryManager.GetItemsResult(query).Items
+                    .Where(i => !string.IsNullOrEmpty(i.Path)
+                             && File.Exists(i.Path)
+                             && MimeTypeHelper.IsSupportedBookFormat(i.Path))
+                    .ToArray();
+
+                if (results.Length > 0)
+                    return results;
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("deserialize"))
+            {
+                _logger.LogWarning(
+                    "Jellyfin DB has items that cannot be deserialized (type={Types}). " +
+                    "Run a library rescan from the Jellyfin dashboard to fix. Error: {Message}",
+                    string.Join(",", types.Select(t => t.ToString())), ex.Message);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to query books with types {Types}",
+                    string.Join(",", types.Select(t => t.ToString())));
+            }
+        }
+
+        return Array.Empty<BaseItem>();
     }
 
     /// <summary>

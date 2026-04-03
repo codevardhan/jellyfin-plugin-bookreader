@@ -1,9 +1,16 @@
 {
-    "category": "General",
-    "guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "name": "Book Reader",
-    "overview": "Book reading API for Jellyfin",
-    "owner": "codevardhan",
-    "targetAbi": "10.11.0.0",
-    "version": "1.0.0.0"
+  "category": "General",
+  "changelog": "Initial release",
+  "description": "REST API for book reading apps — browse library, stream pages, sync reading progress.",
+  "guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "name": "Book Reader",
+  "overview": "Book reading API for Jellyfin",
+  "owner": "codevardhan",
+  "targetAbi": "10.11.0.0",
+  "timestamp": "2026-04-03T00:00:00.0000000Z",
+  "version": "1.0.0.0",
+  "status": "Active",
+  "autoUpdate": false,
+  "imagePath": "",
+  "assemblies": []
 }

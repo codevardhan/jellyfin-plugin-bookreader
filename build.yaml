@@ -1,7 +1,7 @@
 ---
 name: "Book Reader"
 guid: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-version: "1.0.0.0"
+version: "1.1.0.0"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 owner: "codevardhan"
@@ -20,14 +20,7 @@ artifacts:
   - "SQLitePCLRaw.core.dll"
   - "SQLitePCLRaw.provider.e_sqlite3.dll"
 changelog: |-
-  ## 1.0.0.0
-  - Initial release
-  - Library browsing with search, filter, sort, and pagination
-  - Book file downloads with range request support
-  - Cover image extraction (Jellyfin cache + EPUB fallback)
-  - Three-tier reading progress model (universal, page, chapter)
-  - Offline sync with conflict detection
-  - Batch progress sync (up to 100 books per request)
-  - Reading session tracking with heartbeat and auto-close
-  - Reading statistics with streaks and per-book breakdowns
-  - Scheduled task for stale session cleanup
+  ## 1.1.0.0
+  - CBZ/CBR page streaming (no full download required)
+  - BookPageCache permission fallback to in-memory on /tmp access errors
+  - Fix: comic page navigation no longer flashes white between pages

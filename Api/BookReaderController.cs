@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Security.Claims;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using JellyfinBookReader.Dto;
 using JellyfinBookReader.Services;
@@ -18,6 +19,7 @@ namespace JellyfinBookReader.Api;
 /// Feature 2: Library browsing (list, detail, authors, stats).
 /// Feature 3: Reading progress sync.
 /// Feature 4: Reading session tracking.
+/// Feature 5: Page-level streaming with adaptive warm-up cache.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -28,6 +30,9 @@ public class BookReaderController : ControllerBase
     private readonly CoverService _coverService;
     private readonly ProgressService _progressService;
     private readonly SessionService _sessionService;
+    private readonly StreamingServiceFactory _streamingFactory;
+    private readonly BookPageCache _pageCache;
+    private readonly Channel<WarmUpRequest> _warmUpChannel;
     private readonly ILogger<BookReaderController> _logger;
 
     public BookReaderController(
@@ -35,12 +40,18 @@ public class BookReaderController : ControllerBase
         CoverService coverService,
         ProgressService progressService,
         SessionService sessionService,
+        StreamingServiceFactory streamingFactory,
+        BookPageCache pageCache,
+        Channel<WarmUpRequest> warmUpChannel,
         ILogger<BookReaderController> logger)
     {
         _bookService = bookService;
         _coverService = coverService;
         _progressService = progressService;
         _sessionService = sessionService;
+        _streamingFactory = streamingFactory;
+        _pageCache = pageCache;
+        _warmUpChannel = warmUpChannel;
         _logger = logger;
     }
 
@@ -52,33 +63,25 @@ public class BookReaderController : ControllerBase
                  ?? User.FindFirst("Jellyfin-UserId");
 
         if (claim != null && Guid.TryParse(claim.Value, out var userId))
-        {
             return userId;
-        }
 
         throw new UnauthorizedAccessException("Could not resolve user ID from auth token.");
     }
 
     private bool IsAdmin()
     {
-        // Check claims for admin status — works across Jellyfin versions
         var adminClaim = User.FindFirst("Jellyfin-IsApiKey");
-        if (adminClaim != null) return true; // API keys have admin access
+        if (adminClaim != null) return true;
 
         var roleClaim = User.FindFirst(System.Security.Claims.ClaimTypes.Role);
         if (roleClaim != null && roleClaim.Value.Contains("admin", StringComparison.OrdinalIgnoreCase))
-        {
             return true;
-        }
 
-        // Check if the Jellyfin-IsAdministrator claim exists
         foreach (var claim in User.Claims)
         {
             if (claim.Type.Contains("Administrator", StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(claim.Value, "true", StringComparison.OrdinalIgnoreCase))
-            {
                 return true;
-            }
         }
 
         return false;
@@ -89,6 +92,14 @@ public class BookReaderController : ControllerBase
         var userId = GetUserId();
         var progressMap = _progressService.GetAllProgress(userId);
         return bookId => progressMap.TryGetValue(bookId, out var p) ? p : null;
+    }
+
+    private void PublishWarmUp(Guid bookId, string filePath, int startPage, int pageCount)
+    {
+        // TryWrite — non-blocking. If the channel is full, DropOldest handles it.
+        // Never await here; session/page responses must not block on cache warming.
+        _warmUpChannel.Writer.TryWrite(
+            new WarmUpRequest(bookId, filePath, startPage, pageCount));
     }
 
     //  Feature 1: File Serving 
@@ -104,9 +115,7 @@ public class BookReaderController : ControllerBase
     {
         var item = _bookService.GetBookItem(id);
         if (item == null)
-        {
             return NotFound(new { error = "Book not found." });
-        }
 
         var filePath = item.Path!;
         var mimeType = MimeTypeHelper.GetMimeType(filePath);
@@ -127,16 +136,12 @@ public class BookReaderController : ControllerBase
     {
         var item = _bookService.GetBookItem(id);
         if (item == null)
-        {
             return NotFound(new { error = "Book not found." });
-        }
 
         var (stream, contentType) = await _coverService.GetCoverAsync(item).ConfigureAwait(false);
 
         if (stream == null || contentType == null)
-        {
             return NotFound(new { error = "No cover image available for this book." });
-        }
 
         Response.Headers["Cache-Control"] = "public, max-age=86400";
         return File(stream, contentType);
@@ -172,9 +177,7 @@ public class BookReaderController : ControllerBase
     {
         var item = _bookService.GetBookItem(id);
         if (item == null)
-        {
             return NotFound(new { error = "Book not found." });
-        }
 
         var progress = _progressService.GetProgress(GetUserId(), id);
         var dto = BookMapper.ToDto(item, progress);
@@ -225,9 +228,7 @@ public class BookReaderController : ControllerBase
     {
         var progress = _progressService.GetProgress(GetUserId(), id);
         if (progress == null)
-        {
             return NotFound(new { error = "No reading progress found for this book." });
-        }
 
         return Ok(progress);
     }
@@ -243,20 +244,16 @@ public class BookReaderController : ControllerBase
     {
         var item = _bookService.GetBookItem(id);
         if (item == null)
-        {
             return NotFound(new { error = "Book not found." });
-        }
 
         var (status, serverProgress) = _progressService.UpdateProgress(GetUserId(), id, update);
 
         if (status == "conflict")
-        {
             return Conflict(new
             {
                 error = "Progress conflict: server has a newer update.",
                 serverProgress,
             });
-        }
 
         return Ok(new { status = "updated" });
     }
@@ -272,9 +269,7 @@ public class BookReaderController : ControllerBase
     {
         var deleted = _progressService.ClearProgress(GetUserId(), id);
         if (!deleted)
-        {
             return NotFound(new { error = "No reading progress found for this book." });
-        }
 
         return Ok(new { status = "deleted" });
     }
@@ -288,14 +283,10 @@ public class BookReaderController : ControllerBase
     public IActionResult BatchUpdateProgress([FromBody] BatchProgressRequest request)
     {
         if (request.Updates == null || request.Updates.Count == 0)
-        {
             return BadRequest(new { error = "No updates provided." });
-        }
 
         if (request.Updates.Count > 100)
-        {
             return BadRequest(new { error = "Maximum 100 updates per batch." });
-        }
 
         var result = _progressService.BatchUpdate(GetUserId(), request);
         return Ok(result);
@@ -304,7 +295,8 @@ public class BookReaderController : ControllerBase
     //  Feature 4: Reading Sessions 
 
     /// <summary>
-    /// Begin a reading session. Auto-closes any existing open session for the same book.
+    /// Begin a reading session and trigger background cache warm-up.
+    /// Auto-closes any existing open session for the same book.
     /// POST /api/BookReader/sessions/start
     /// </summary>
     [HttpPost("sessions/start")]
@@ -312,14 +304,19 @@ public class BookReaderController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult StartSession([FromBody] StartSessionRequest request)
     {
-        // Verify the book exists
         var item = _bookService.GetBookItem(request.BookId);
         if (item == null)
-        {
             return NotFound(new { error = "Book not found." });
-        }
 
         var result = _sessionService.StartSession(GetUserId(), request.BookId);
+
+        // Fire warm-up for the first N pages — do not await, must not block response.
+        if (_streamingFactory.IsStreamable(item.Path!))
+        {
+            var initialPages = Plugin.Instance?.Configuration?.WarmUpInitialPages ?? 10;
+            PublishWarmUp(request.BookId, item.Path!, startPage: 0, pageCount: initialPages);
+        }
+
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
@@ -333,21 +330,17 @@ public class BookReaderController : ControllerBase
     public IActionResult Heartbeat([FromBody] HeartbeatRequest request)
     {
         if (string.IsNullOrEmpty(request.SessionId))
-        {
             return BadRequest(new { error = "sessionId is required." });
-        }
 
         var ok = _sessionService.Heartbeat(request.SessionId);
         if (!ok)
-        {
             return NotFound(new { error = "Session not found or already closed." });
-        }
 
         return Ok(new { status = "ok" });
     }
 
     /// <summary>
-    /// End a reading session.
+    /// End a reading session and evict the book's page cache.
     /// POST /api/BookReader/sessions/end
     /// </summary>
     [HttpPost("sessions/end")]
@@ -356,22 +349,23 @@ public class BookReaderController : ControllerBase
     public IActionResult EndSession([FromBody] EndSessionRequest request)
     {
         if (string.IsNullOrEmpty(request.SessionId))
-        {
             return BadRequest(new { error = "sessionId is required." });
-        }
 
         var ok = _sessionService.EndSession(request);
         if (!ok)
-        {
             return NotFound(new { error = "Session not found or already closed." });
-        }
+
+        // Evict cached pages — frees memory for in-memory stores, deletes temp dir for disk stores.
+        // Resolve the bookId from the closed session so we evict the right entry.
+        var session = _sessionService.GetClosedSession(request.SessionId);
+        if (session != null)
+            _pageCache.Evict(session.BookId);
 
         return Ok(new { status = "ended" });
     }
 
     /// <summary>
     /// Reading statistics for the authenticated user.
-    /// Pass ?userId= for a different user (admin only).
     /// GET /api/BookReader/sessions/stats
     /// </summary>
     [HttpGet("sessions/stats")]
@@ -384,14 +378,110 @@ public class BookReaderController : ControllerBase
         if (userId.HasValue && userId.Value != currentUserId)
         {
             if (!IsAdmin())
-            {
                 return StatusCode(StatusCodes.Status403Forbidden,
                     new { error = "Admin privileges required to view another user's stats." });
-            }
         }
 
         var targetUserId = userId ?? currentUserId;
         var stats = _sessionService.GetStats(targetUserId);
         return Ok(stats);
+    }
+
+    //  Feature 5: Page Streaming 
+
+    /// <summary>
+    /// Returns the total page count and format metadata for a streamable book.
+    /// Clients should call this once before requesting individual pages.
+    /// GET /api/BookReader/books/{id}/manifest
+    /// </summary>
+    [HttpGet("books/{id}/manifest")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> GetManifest([FromRoute] Guid id)
+    {
+        var item = _bookService.GetBookItem(id);
+        if (item == null)
+            return NotFound(new { error = "Book not found." });
+
+        var service = _streamingFactory.GetService(item.Path!);
+        var format = Path.GetExtension(item.Path).TrimStart('.').ToLowerInvariant();
+
+        if (service == null)
+        {
+            return Ok(new BookManifestDto
+            {
+                BookId = id,
+                Format = format,
+                IsStreamable = false,
+                TotalPages = 0,
+            });
+        }
+
+        var totalPages = await service.GetPageCountAsync(item.Path!).ConfigureAwait(false);
+
+        return Ok(new BookManifestDto
+        {
+            BookId = id,
+            Format = format,
+            IsStreamable = true,
+            TotalPages = totalPages,
+        });
+    }
+
+    /// <summary>
+    /// Streams a single page by zero-based index.
+    /// Returns the extracted image (or EPUB chapter) directly.
+    /// Serves from the warm-up cache when available; falls back to live extraction
+    /// and triggers a prefetch window for subsequent pages.
+    /// GET /api/BookReader/books/{id}/pages/{pageNumber}
+    /// </summary>
+    [HttpGet("books/{id}/pages/{pageNumber:int}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> GetPage([FromRoute] Guid id, [FromRoute] int pageNumber)
+    {
+        var item = _bookService.GetBookItem(id);
+        if (item == null)
+            return NotFound(new { error = "Book not found." });
+
+        // 1. Cache hit — fast path, no archive I/O
+        if (_pageCache.TryGet(id, pageNumber, out var cachedBytes, out var cachedContentType))
+        {
+            Response.Headers["X-Cache"] = "HIT";
+            return File(cachedBytes!, cachedContentType!);
+        }
+
+        // 2. Format not streamable
+        var service = _streamingFactory.GetService(item.Path!);
+        if (service == null)
+            return UnprocessableEntity(new { error = "This book format does not support page streaming." });
+
+        // 3. Cache miss — extract live
+        var (stream, contentType) = await service
+            .GetPageAsync(item.Path!, pageNumber)
+            .ConfigureAwait(false);
+
+        if (stream == null || contentType == null)
+            return NotFound(new { error = $"Page {pageNumber} not found." });
+
+        byte[] bytes;
+        await using (stream.ConfigureAwait(false))
+        {
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms).ConfigureAwait(false);
+            bytes = ms.ToArray();
+        }
+
+        // Write to cache so subsequent requests for this page are served from memory/disk
+        _pageCache.Set(id, item.Path!, pageNumber, bytes, contentType);
+
+        // Trigger prefetch for the next window — fire and forget
+        var prefetchWindow = Plugin.Instance?.Configuration?.WarmUpPrefetchWindow ?? 5;
+        PublishWarmUp(id, item.Path!, startPage: pageNumber + 1, pageCount: prefetchWindow);
+
+        Response.Headers["X-Cache"] = "MISS";
+        return File(bytes, contentType);
     }
 }
