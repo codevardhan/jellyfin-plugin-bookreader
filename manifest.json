@@ -9,12 +9,12 @@
     "imageUrl": "",
     "versions": [
       {
-        "version": "1.0.0.0",
-        "changelog": "See https://github.com/codevardhan/jellyfin-plugin-bookreader/releases/tag/v1.0.0.0",
+        "version": "1.1.0.0",
+        "changelog": "See https://github.com/codevardhan/jellyfin-plugin-bookreader/releases/tag/v1.1.0.0",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/codevardhan/jellyfin-plugin-bookreader/releases/download/v1.0.0.0/jellyfin-book-reader.zip",
-        "checksum": "7f272f7f135c442b67ff2190d2b4042d",
-        "timestamp": "2026-04-01T21:56:41Z"
+        "sourceUrl": "https://github.com/codevardhan/jellyfin-plugin-bookreader/releases/download/v1.1.0.0/jellyfin-book-reader.zip",
+        "checksum": "92aec4e6ea5f9898857fe797a9d5aa04",
+        "timestamp": "2026-04-03T20:42:57Z"
       }
     ]
   }
