@@ -6,8 +6,11 @@ PACKAGE_NAME  := jellyfin-book-reader.zip
 TEST_PROJECT  := $(PLUGIN_NAME).Tests/$(PLUGIN_NAME).Tests.csproj
 SOLUTION      := $(PLUGIN_NAME).sln
 
-# Only ship the plugin DLL — Jellyfin provides SQLite at runtime
-ARTIFACTS := $(PLUGIN_NAME).dll
+# Ship only the plugin DLL and its third-party dependencies.
+# Jellyfin framework assemblies (Jellyfin.*, MediaBrowser.*, Microsoft.Extensions.*,
+# Microsoft.Data.Sqlite) are already in Jellyfin's runtime — bundling duplicates
+# causes type identity conflicts. Be explicit: list only what isn't provided by Jellyfin.
+ARTIFACTS := $(PLUGIN_NAME).dll SharpCompress.dll
 
 # Extract version from build.yaml if present, otherwise default
 VERSION := $(shell grep -m1 '^version:' build.yaml 2>/dev/null | awk '{print $$2}' | tr -d '"' || echo "1.0.0.0")
@@ -56,7 +59,7 @@ package: test publish ## Run tests, then build distributable zip
 	@echo "Packaging v$(VERSION)..."
 	rm -rf $(DIST_DIR)
 	mkdir -p $(DIST_DIR)
-	cp $(PUBLISH_DIR)/$(PLUGIN_NAME).dll $(DIST_DIR)/
+	for f in $(ARTIFACTS); do cp $(PUBLISH_DIR)/$$f $(DIST_DIR)/; done
 	cp meta.json $(DIST_DIR)/ 2>/dev/null || true
 	cd $(DIST_DIR) && zip -r ../$(PACKAGE_NAME) . && cd ..
 	@echo ""
@@ -92,7 +95,8 @@ checksum: ## Print MD5 checksum of the package (for manifest.json)
 deploy: package ## Build, test, package, and deploy to local Jellyfin
 	@echo "Deploying to $(PLUGIN_DIR)..."
 	sudo mkdir -p $(PLUGIN_DIR)
-	sudo cp $(DIST_DIR)/$(PLUGIN_NAME).dll $(PLUGIN_DIR)/
+	sudo find $(PLUGIN_DIR) -name "*.dll" -delete
+	for f in $(ARTIFACTS); do sudo cp $(DIST_DIR)/$$f $(PLUGIN_DIR)/; done
 	sudo cp $(DIST_DIR)/meta.json $(PLUGIN_DIR)/ 2>/dev/null || true
 	sudo chown -R jellyfin:jellyfin $(PLUGIN_DIR)/
 	sudo systemctl restart jellyfin
