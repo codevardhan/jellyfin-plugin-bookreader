@@ -1,0 +1,42 @@
+name: Build and Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore JellyfinBookReader.sln
+
+      - name: Run tests
+        run: dotnet test JellyfinBookReader.Tests/JellyfinBookReader.Tests.csproj --configuration Release --no-restore --verbosity normal
+
+      - name: Publish
+        run: dotnet publish JellyfinBookReader.csproj --configuration Release --output ./bin/publish
+
+      - name: Package zip
+        run: |
+          mkdir -p dist
+          cp bin/publish/JellyfinBookReader.dll dist/
+          cp bin/publish/SharpCompress.dll dist/ 2>/dev/null || true
+          cp meta.json dist/ 2>/dev/null || true
+          cd dist && zip -r ../jellyfin-book-reader.zip . && cd ..
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: jellyfin-book-reader.zip
