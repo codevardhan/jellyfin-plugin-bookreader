@@ -10,11 +10,11 @@
     "versions": [
       {
         "version": "1.2.0.0",
-        "changelog": "See https://github.com/codevardhan/jellyfin-plugin-bookreader/releases/tag/v1.1.0.0",
+        "changelog": "See https://github.com/codevardhan/jellyfin-plugin-bookreader/releases/tag/v1.2.0.0",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/codevardhan/jellyfin-plugin-bookreader/releases/download/v1.1.0.0/jellyfin-book-reader.zip",
-        "checksum": "e84b790f6b7ec143704f63e65f5ff556",
-        "timestamp": "2026-04-04T21:55:47Z"
+        "sourceUrl": "https://github.com/codevardhan/jellyfin-plugin-bookreader/releases/download/v1.2.0.0/jellyfin-book-reader.zip",
+        "checksum": "38bfbbb5b176523f339ae1a466e9aadb",
+        "timestamp": "2026-04-05T23:55:50Z"
       }
     ]
   }
