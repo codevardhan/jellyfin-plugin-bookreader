@@ -16,12 +16,14 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         services.AddSingleton<BookReaderDbContext>();
         services.AddSingleton<ProgressRepository>();
         services.AddSingleton<SessionRepository>();
+        services.AddSingleton<ClientDataRepository>();
 
         //  Existing services (unchanged) 
         services.AddSingleton<BookService>();
         services.AddSingleton<CoverService>();
         services.AddSingleton<ProgressService>();
         services.AddSingleton<SessionService>();
+        services.AddSingleton<ClientDataService>();
 
         //  Streaming services 
         // Registered as IBookStreamingService so IEnumerable<IBookStreamingService>

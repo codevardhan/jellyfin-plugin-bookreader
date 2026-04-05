@@ -38,7 +38,7 @@ public class TestDbFixture : IDisposable
     {
         using var conn = DbContext.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM ReadingProgress; DELETE FROM ReadingSessions;";
+        cmd.CommandText = "DELETE FROM ReadingProgress; DELETE FROM ReadingSessions; DELETE FROM BookClientData;";
         cmd.ExecuteNonQuery();
     }
 

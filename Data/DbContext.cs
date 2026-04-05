@@ -12,7 +12,7 @@ public class BookReaderDbContext
     private readonly ILogger<BookReaderDbContext> _logger;
 
     // Bump this when the schema changes. MigrateDatabase() handles upgrades.
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
 
     public BookReaderDbContext(IApplicationPaths appPaths, ILogger<BookReaderDbContext> logger)
     {
@@ -103,6 +103,17 @@ public class BookReaderDbContext
                 ON ReadingSessions(IsOpen, LastHeartbeatAt);
             CREATE INDEX IF NOT EXISTS idx_progress_user
                 ON ReadingProgress(UserId);
+
+            CREATE TABLE IF NOT EXISTS BookClientData (
+                UserId      TEXT NOT NULL,
+                BookId      TEXT NOT NULL,
+                Data        TEXT NOT NULL DEFAULT '{}',
+                UpdatedAt   TEXT NOT NULL,
+                PRIMARY KEY (UserId, BookId)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_clientdata_user
+                ON BookClientData(UserId);
         ";
         cmd.ExecuteNonQuery();
     }
@@ -122,6 +133,11 @@ public class BookReaderDbContext
         if (version < 2)
         {
             MigrateV1ToV2(conn);
+        }
+
+        if (version < 3)
+        {
+            MigrateV2ToV3(conn);
         }
 
         // Set current version
@@ -173,4 +189,31 @@ public class BookReaderDbContext
     }
 
     // No Dispose needed — connections are created and disposed per-operation
+
+    /// <summary>
+    /// v2 → v3: Add BookClientData table for opaque per-user, per-book JSON blobs.
+    /// Clients use this to sync custom data (quotes, stats, bookmarks, etc.)
+    /// without the server needing to understand the payload schema.
+    /// </summary>
+    private void MigrateV2ToV3(SqliteConnection conn)
+    {
+        _logger.LogInformation("Migrating BookReader DB from v2 to v3 (client data blobs)...");
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            CREATE TABLE IF NOT EXISTS BookClientData (
+                UserId      TEXT NOT NULL,
+                BookId      TEXT NOT NULL,
+                Data        TEXT NOT NULL DEFAULT '{}',
+                UpdatedAt   TEXT NOT NULL,
+                PRIMARY KEY (UserId, BookId)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_clientdata_user
+                ON BookClientData(UserId);
+        ";
+        cmd.ExecuteNonQuery();
+
+        _logger.LogInformation("Migration v2→v3 complete.");
+    }
 }

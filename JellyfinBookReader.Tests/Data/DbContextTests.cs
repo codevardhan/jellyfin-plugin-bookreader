@@ -81,6 +81,7 @@ public class DbContextTests : IDisposable
         Assert.Contains("idx_sessions_user", indexes);
         Assert.Contains("idx_sessions_open", indexes);
         Assert.Contains("idx_progress_user", indexes);
+        Assert.Contains("idx_clientdata_user", indexes);
     }
 
     [Fact]
@@ -91,8 +92,54 @@ public class DbContextTests : IDisposable
         cmd.CommandText = "PRAGMA user_version;";
         var version = Convert.ToInt32(cmd.ExecuteScalar());
 
-        // Current schema version is 2
-        Assert.Equal(2, version);
+        // Current schema version is 3 (v3 added BookClientData)
+        Assert.Equal(3, version);
+    }
+
+    [Fact]
+    public void Schema_BookClientDataTable_HasExpectedColumns()
+    {
+        using var conn = _fixture.GetConnection();
+        var columns = GetTableColumns(conn, "BookClientData");
+
+        Assert.Contains("UserId", columns);
+        Assert.Contains("BookId", columns);
+        Assert.Contains("Data", columns);
+        Assert.Contains("UpdatedAt", columns);
+    }
+
+    [Fact]
+    public void Schema_BookClientData_HasCompositePrimaryKey()
+    {
+        using var conn = _fixture.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            INSERT INTO BookClientData (UserId, BookId, Data, UpdatedAt)
+            VALUES ('user1', 'book1', '{}', '2024-01-01T00:00:00Z');";
+        cmd.ExecuteNonQuery();
+
+        using var cmd2 = conn.CreateCommand();
+        cmd2.CommandText = @"
+            INSERT INTO BookClientData (UserId, BookId, Data, UpdatedAt)
+            VALUES ('user1', 'book1', '{""v"":2}', '2024-01-02T00:00:00Z');";
+
+        Assert.Throws<SqliteException>(() => cmd2.ExecuteNonQuery());
+    }
+
+    [Fact]
+    public void Schema_BookClientData_DataColumn_DefaultsToEmptyObject()
+    {
+        using var conn = _fixture.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            INSERT INTO BookClientData (UserId, BookId, UpdatedAt)
+            VALUES ('user-default', 'book-default', '2024-01-01T00:00:00Z');";
+        cmd.ExecuteNonQuery();
+
+        using var read = conn.CreateCommand();
+        read.CommandText = "SELECT Data FROM BookClientData WHERE UserId = 'user-default';";
+        var data = read.ExecuteScalar()?.ToString();
+        Assert.Equal("{}", data);
     }
 
     [Fact]

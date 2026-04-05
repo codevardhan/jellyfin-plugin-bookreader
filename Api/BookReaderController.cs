@@ -30,6 +30,7 @@ public class BookReaderController : ControllerBase
     private readonly CoverService _coverService;
     private readonly ProgressService _progressService;
     private readonly SessionService _sessionService;
+    private readonly ClientDataService _clientDataService;
     private readonly StreamingServiceFactory _streamingFactory;
     private readonly BookPageCache _pageCache;
     private readonly Channel<WarmUpRequest> _warmUpChannel;
@@ -40,6 +41,7 @@ public class BookReaderController : ControllerBase
         CoverService coverService,
         ProgressService progressService,
         SessionService sessionService,
+        ClientDataService clientDataService,
         StreamingServiceFactory streamingFactory,
         BookPageCache pageCache,
         Channel<WarmUpRequest> warmUpChannel,
@@ -49,6 +51,7 @@ public class BookReaderController : ControllerBase
         _coverService = coverService;
         _progressService = progressService;
         _sessionService = sessionService;
+        _clientDataService = clientDataService;
         _streamingFactory = streamingFactory;
         _pageCache = pageCache;
         _warmUpChannel = warmUpChannel;
@@ -483,5 +486,85 @@ public class BookReaderController : ControllerBase
 
         Response.Headers["X-Cache"] = "MISS";
         return File(bytes, contentType);
+    }
+
+    //  Feature 6: Client Data Blobs 
+
+    /// <summary>
+    /// Get the client data blob for the authenticated user on a specific book.
+    /// Returns 404 if the user has never pushed data for this book.
+    /// GET /api/BookReader/books/{id}/client-data
+    /// </summary>
+    [HttpGet("books/{id}/client-data")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public IActionResult GetClientData([FromRoute] Guid id)
+    {
+        var data = _clientDataService.GetClientData(GetUserId(), id);
+        if (data == null)
+            return NotFound(new { error = "No client data found for this book." });
+
+        return Ok(data);
+    }
+
+    /// <summary>
+    /// Create or update the client data blob for a specific book.
+    /// The server stores Data verbatim — it never inspects the JSON.
+    /// If updatedAt is provided and older than the server's value, returns 409
+    /// with the server's current state so the client can merge and retry.
+    /// PUT /api/BookReader/books/{id}/client-data
+    /// </summary>
+    [HttpPut("books/{id}/client-data")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public IActionResult UpdateClientData([FromRoute] Guid id, [FromBody] ClientDataUpdateDto update)
+    {
+        if (string.IsNullOrWhiteSpace(update.Data))
+            update.Data = "{}";
+
+        var (status, serverData) = _clientDataService.UpdateClientData(GetUserId(), id, update);
+
+        if (status == "conflict")
+            return Conflict(new
+            {
+                error = "Client data conflict: server has a newer update.",
+                serverData,
+            });
+
+        return Ok(new { status });
+    }
+
+    /// <summary>
+    /// Delete the client data blob for a specific book.
+    /// DELETE /api/BookReader/books/{id}/client-data
+    /// </summary>
+    [HttpDelete("books/{id}/client-data")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public IActionResult DeleteClientData([FromRoute] Guid id)
+    {
+        var deleted = _clientDataService.DeleteClientData(GetUserId(), id);
+        if (!deleted)
+            return NotFound(new { error = "No client data found for this book." });
+
+        return Ok(new { status = "deleted" });
+    }
+
+    /// <summary>
+    /// Bulk client data sync for offline clients.
+    /// Mirrors the batch progress endpoint — max 100 items per call.
+    /// Each item uses the same conflict detection as the single-book endpoint.
+    /// PUT /api/BookReader/client-data/batch
+    /// </summary>
+    [HttpPut("client-data/batch")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public IActionResult BatchUpdateClientData([FromBody] BatchClientDataRequest request)
+    {
+        if (request.Updates.Count > 100)
+            return BadRequest(new { error = "Maximum 100 updates per batch." });
+
+        var response = _clientDataService.BatchUpdate(GetUserId(), request);
+        return Ok(response);
     }
 }
