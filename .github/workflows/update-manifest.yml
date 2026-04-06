@@ -1,12 +1,15 @@
 name: Update Plugin Manifest
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v1.1.0.0)'
+        description: "Release tag (e.g. v1.1.0.0)"
         required: true
 
 jobs:
@@ -21,13 +24,12 @@ jobs:
 
       - name: Update manifest.json
         env:
-          TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+          TAG: ${{ inputs.tag }}
           REPO: ${{ github.repository }}
         run: |
           VERSION="${TAG#v}"
           DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/jellyfin-book-reader.zip"
 
-          # Download the zip to compute checksum
           curl -sL "$DOWNLOAD_URL" -o /tmp/plugin.zip
           CHECKSUM=$(md5sum /tmp/plugin.zip | cut -d ' ' -f 1)
 
@@ -60,5 +62,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add manifest.json
-          git commit -m "Update manifest for ${{ github.event.release.tag_name || github.event.inputs.tag }}" || exit 0
+          git commit -m "Update manifest for ${{ inputs.tag }}" || exit 0
           git push

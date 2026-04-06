@@ -3,7 +3,7 @@ name: Build and Publish Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build:
@@ -17,7 +17,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: "9.0.x"
 
       - name: Restore dependencies
         run: dotnet restore JellyfinBookReader.sln
@@ -40,3 +40,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: jellyfin-book-reader.zip
+
+  update-manifest:
+    needs: build
+    uses: ./.github/workflows/update-manifest.yml
+    with:
+      tag: ${{ github.ref_name }}
+    permissions:
+      contents: write
