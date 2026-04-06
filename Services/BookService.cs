@@ -28,7 +28,25 @@ public class BookService
     /// </summary>
     public BaseItem? GetBookItem(Guid itemId)
     {
+        // Primary lookup — fast in-memory path.
         var item = _libraryManager.GetItemById(itemId);
+
+        if (item == null)
+        {
+            // Fallback: GetItemById has version-specific cache/lazy-load edge
+            // cases in Jellyfin 10.8–10.10 where it returns null even for items
+            // that exist in the library.  GetItemsResult goes through the same
+            // query path that successfully powers GetAllBooks, so it is reliable.
+            _logger.LogDebug(
+                "GetItemById returned null for {Id} — trying query fallback", itemId);
+
+            item = _libraryManager.GetItemsResult(new InternalItemsQuery
+            {
+                ItemIds = new[] { itemId },
+                IsVirtualItem = false,
+                Recursive = true,
+            }).Items.FirstOrDefault();
+        }
 
         if (item == null)
         {

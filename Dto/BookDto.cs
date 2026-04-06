@@ -44,4 +44,7 @@ public class BookDto
 
     [JsonPropertyName("progress")]
     public ProgressDto? Progress { get; set; }
+
+    [JsonPropertyName("libraryId")]
+    public Guid? LibraryId { get; set; }
 }

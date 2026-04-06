@@ -12,5 +12,5 @@
   "status": "Active",
   "autoUpdate": false,
   "imagePath": "",
-  "assemblies": ["JellyfinBookReader.dll"]
+  "assemblies": ["JellyfinBookReader.dll", "SharpCompress.dll"]
 }

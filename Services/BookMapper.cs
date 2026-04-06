@@ -21,6 +21,21 @@ public static class BookMapper
             .TrimStart('.')
             .ToLowerInvariant();
 
+        // Walk up the parent chain to find the library root (topmost ancestor).
+        // The library root is the CollectionFolder whose own parent is null.
+        Guid? libraryId = null;
+        var ancestor = item.GetParent();
+        while (ancestor != null)
+        {
+            var next = ancestor.GetParent();
+            if (next == null)
+            {
+                libraryId = ancestor.Id;
+                break;
+            }
+            ancestor = next;
+        }
+
         return new BookDto
         {
             Id = item.Id,
@@ -36,6 +51,7 @@ public static class BookMapper
             CoverUrl = $"/api/BookReader/books/{item.Id}/cover",
             DateAdded = item.DateCreated,
             Progress = progress,
+            LibraryId = libraryId,
         };
     }
 }
